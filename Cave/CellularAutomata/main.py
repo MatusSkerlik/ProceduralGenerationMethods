@@ -9,7 +9,7 @@ from typing import List, Tuple, Any, Callable
 import pygame
 
 # global params
-width, height = 150, 150
+width, height = 50, 50
 
 Coords = Tuple[int, int]
 Rect = Tuple[int, int, int, int]
@@ -122,6 +122,12 @@ def bounding_box(coords: List[Coords]) -> Rect:
 class Gene(ABC):
     _value: Any
 
+    def __repr__(self):
+        return str(self._value)
+
+    def __str__(self):
+        return str(self._value)
+
     @classmethod
     @abstractmethod
     def initialize(cls, *args):
@@ -142,7 +148,7 @@ class IntGene(Gene):
 
     @classmethod
     def initialize(cls, minimal: int, maximal: int):
-        return IntGene(random.randint(minimal, maximal), minimal, maximal)
+        return IntGene(minimal, minimal, maximal)
 
     def __init__(self, value: int, minimal: int, maximal: int):
         self._min = minimal
@@ -191,6 +197,9 @@ class ConfigGene(Gene):
             return self._value[item]
         else:
             raise NotImplemented
+
+    def __len__(self):
+        return len(self._value)
 
     def mutate(self):
         m_index = random.randint(0, len(self._value) - 1)
@@ -299,10 +308,8 @@ class GeneticAlgorithm:
             for chromosome_0, chromosome_1 in product(parents, parents):
                 if chromosome_0 is not chromosome_1:
                     for updated_chromosome in self.crossover(chromosome_0, chromosome_1):
-                        for gene in updated_chromosome.genes:
-                            # TODO mutation strategy
-                            if random.random() < 0.01:
-                                gene.mutate()
+                        # for gene in updated_chromosome.genes:
+                        #    gene.mutate()
                         children.append(updated_chromosome)
             random.shuffle(children)
             self._chromosomes = children[:selection_count] + [self.initialize_chromosome() for _ in range(new_count)]
@@ -310,18 +317,20 @@ class GeneticAlgorithm:
 
 if __name__ == '__main__':
     # local params
-    population_size = 20
+    population_size = 50
     generations = 500
+    scale = 10
+    font_size = 24
 
     # initialization of environment
     pygame.init()
     pygame.font.init()
 
-    font = pygame.font.SysFont(None, 12)
-    screen = pygame.display.set_mode([width, height + 32])
+    font = pygame.font.SysFont(None, font_size)
+    screen = pygame.display.set_mode([width * scale, height * scale + 64])
 
 
-    def fitness(steps: int, birth_probability: float, config: List[Tuple[int, int]]):
+    def fitness(birth_probability: float, config: List[Tuple[int, int]]):
         """ Calculate fitness for genetic algorithm """
         caves = []
         walls = []
@@ -329,7 +338,7 @@ if __name__ == '__main__':
         visited_walls = dict()
 
         # from genotype to phenotype
-        Solution = solve(config[steps:], birth_probability)
+        Solution = solve(config[:], birth_probability)
 
         for x in range(width):
             for y in range(height):
@@ -345,14 +354,12 @@ if __name__ == '__main__':
                         visited_walls.update(coords)
                         walls.append(coords)
 
-        # num_of_caves = len(caves)
-        # num_of_walls = len(walls)
-        # num_of_cave_pixels = sum(len(cave.keys()) for cave in caves)
-        # num_of_wall_pixels = sum(len(wall.keys()) for wall in walls)
-        # cave_size_mean = num_of_cave_pixels / num_of_caves if num_of_caves > 0 else 0
-        # wall_size_mean = num_of_wall_pixels / num_of_walls if num_of_walls > 0 else 0
-        # TODO write proper fitness function
-        if len(caves) > 0:
+        num_of_caves = len(caves)
+        num_of_walls = len(walls)
+        num_of_cave_pixels = sum(len(cave.keys()) for cave in caves)
+        num_of_wall_pixels = sum(len(wall.keys()) for wall in walls)
+
+        if num_of_caves > 0:
             cumulative_width = 0
             cumulative_height = 0
             for cave in caves:
@@ -363,8 +370,21 @@ if __name__ == '__main__':
             mean_width = cumulative_width / len(caves)
             mean_height = cumulative_height / len(caves)
 
-            return mean_width * mean_height
-        return 0
+            w1 = 1024
+            v1 = (num_of_wall_pixels / num_of_cave_pixels)
+            v1 = w1 * v1 if 1.1 < v1 < 1.4 else 0
+
+            w2 = 1024
+            v2 = (mean_width / mean_height if mean_width > mean_height else mean_height / mean_width) \
+                if (mean_width > 0) and (mean_height > 0) else 0
+            v2 = w2 * v2 if 1.1 < v2 < 1.4 else 0
+
+            w3 = -5
+            v3 = w3 * len(caves)
+            return v1 + v2 + v3
+
+        else:
+            return 0
 
 
     def handle_events(_):
@@ -378,29 +398,30 @@ if __name__ == '__main__':
 
     def render_solution(chromosomes):
         phenotype = max(chromosomes, key=attrgetter('fitness'))
-        steps, birth_probability, config = phenotype[:]
-        genotype = solve(config[steps.value:], birth_probability.value)
+        birth_probability, config = phenotype[:]
+        genotype = solve(config[:], birth_probability.value)
 
         # render best solution
         screen.fill(color=(0, 0, 0))
         for x in range(width):
             for y in range(height):
                 if genotype[encode_coords(x, y)] == 1:
-                    pygame.draw.rect(screen, color=(255, 255, 255), rect=(x, y, 1, 1))
+                    pygame.draw.rect(screen, color=(255, 255, 255), rect=(x * scale, y * scale, scale, scale))
 
-        text0 = font.render("fitness: %d" % phenotype.fitness, False, (255, 255, 255))
-        text1 = font.render("config: %s" % config[:], False, (255, 255, 255))
-        screen.blit(text0, (8, height + 8))
-        screen.blit(text1, (8, height + 8 + 12))
+        text0 = font.render(
+            "fitness: %d, steps: %s, birth_prob: %s" % (phenotype.fitness, len(config), birth_probability),
+            False, (255, 255, 255))
+        text1 = font.render("config: %s" % config, False, (255, 255, 255))
+        screen.blit(text0, (8, height * scale + 8))
+        screen.blit(text1, (8, height * scale + 8 + font_size))
         pygame.display.flip()
         pygame.image.save(screen, "img/%d.png" % time.time())
 
 
     initial_genes = [
         [
-            IntGene.initialize(1, 5),
             FloatBoundedIntervalGene.initialize(0.01),
-            ConfigGene.initialize(5)
+            ConfigGene.initialize(8)
         ] for _ in range(population_size)
     ]
     GA = GeneticAlgorithm(
@@ -411,6 +432,6 @@ if __name__ == '__main__':
     )
     GA.before_fitness = handle_events
     GA.before_crossover = render_solution
-    GA.run(0.6)
+    GA.run(0.8)
 
     pygame.quit()
