@@ -156,7 +156,8 @@ class IntGene(Gene):
         self._value = value
 
     def mutate(self):
-        self._value = random.randint(self._min, self._max)
+        if self._value < self._max:
+            self._value += 1
 
 
 class FloatBoundedIntervalGene(Gene):
@@ -203,6 +204,7 @@ class ConfigGene(Gene):
 
     def mutate(self):
         m_index = random.randint(0, len(self._value) - 1)
+        # m_index = len(self._value) - 1
         p_index = random.randint(0, 1)
         ratio = self._value[m_index][p_index]
         if 1 < ratio < 8:
