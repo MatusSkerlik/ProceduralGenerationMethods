@@ -1,8 +1,9 @@
+import math
 import random
 import time
 from abc import ABC, abstractmethod
 from copy import copy
-from itertools import product
+from functools import partial
 from operator import attrgetter
 from typing import List, Tuple, Any, Callable
 
@@ -172,24 +173,26 @@ class FloatBoundedIntervalGene(Gene):
         self._value = initial
 
     def mutate(self):
-        if self._diff < self._value < 1 - self._diff:
-            self._value += (self._diff if random.random() > 0.5 else -self._diff)
-        elif self._value < self._diff:
-            self._value += self._diff
-        else:
-            self._value -= self._diff
+        if random.random() < 0.01:
+            if self._diff < self._value < 1 - self._diff:
+                self._value += (self._diff if random.random() > 0.5 else -self._diff)
+            elif self._value < self._diff:
+                self._value += self._diff
+            else:
+                self._value -= self._diff
 
 
 class ConfigGene(Gene):
     """ Automata sequence gene with mutation  """
 
     @classmethod
-    def initialize(cls, length: int):
+    def initialize(cls, length: int, max_length: int):
         sequence = [(random.randint(1, 8), random.randint(1, 8)) for _ in range(length)]
-        return ConfigGene(sequence)
+        return ConfigGene(sequence, max_length)
 
-    def __init__(self, value: List[Tuple[int, int]]):
+    def __init__(self, value: List[Tuple[int, int]], max_length: int):
         self._value = value
+        self._max_length = max_length
 
     def __getitem__(self, item):
         if isinstance(item, slice):
@@ -203,17 +206,23 @@ class ConfigGene(Gene):
         return len(self._value)
 
     def mutate(self):
-        m_index = random.randint(0, len(self._value) - 1)
-        # m_index = len(self._value) - 1
-        p_index = random.randint(0, 1)
-        ratio = self._value[m_index][p_index]
-        if 1 < ratio < 8:
-            ratio += 1 if random.random() > 0.5 else -1
-        elif ratio == 1:
-            ratio += 1
-        else:
-            ratio -= 1
-        self._value[m_index] = (self._value[m_index][0], ratio) if p_index == 1 else (ratio, self._value[m_index][1])
+        r = random.random()
+        if r < 0.005 and len(self._value) < self._max_length:  # append new configuration
+            self._value.append((random.randint(1, 8), random.randint(1, 8)))
+        elif r < 0.01 and len(self._value) > 1:
+            self._value.pop()
+        elif len(self._value) > 1 and random.random() < 0.1:
+            m_index = len(self._value) - 1
+            p_index = random.randint(0, 1)
+            ratio = self._value[m_index][p_index]
+            if 1 < ratio < 8:
+                ratio += 1 if random.random() > 0.5 else -1
+            elif ratio == 1:
+                ratio += 1
+            else:
+                ratio -= 1
+            self._value[m_index] = (self._value[m_index][0], ratio) if p_index == 1 else (
+                ratio, self._value[m_index][1])
 
 
 class Chromosome:
@@ -250,8 +259,11 @@ class Chromosome:
 
 class GeneticAlgorithm:
     """ Cellular automata GA """
-    before_crossover = lambda self, _: None
-    before_fitness = lambda self, _: None
+    before_selection = staticmethod(lambda chromosomes: None)
+    before_fitness = staticmethod(lambda chromosome: None)
+    after_fitness = staticmethod(lambda chromosome: None)
+    generation_start = staticmethod(lambda gen: None)
+    generation_end = staticmethod(lambda gen: None)
 
     def __init__(self,
                  initial_genes: List[List[Gene]],
@@ -268,14 +280,6 @@ class GeneticAlgorithm:
         # initialize genetic algorithm with genes that will be mutated
         self._chromosomes = [Chromosome(genes) for genes in initial_genes]
 
-    @staticmethod
-    def crossover(parent_0: Chromosome, parent_1: Chromosome) -> (Chromosome, Chromosome):
-        """ Generic crossover strategy """
-        index = random.randrange(1, len(parent_0))
-        genes_1 = parent_0[:index] + parent_1[index:]
-        genes_2 = parent_1[:index] + parent_0[index:]
-        return Chromosome(genes_1), Chromosome(genes_2)
-
     def initialize_chromosome(self):
         """ Will create chromosome from default genes """
         index = random.randint(0, len(self._initial_genes) - 1)
@@ -285,10 +289,26 @@ class GeneticAlgorithm:
                 gene.mutate()
         return Chromosome(genes)
 
-    def select_parents(self, count: int):
+    @staticmethod
+    def select_parents(chromosomes: sorted, count: int):
         """ Best parents selection """
-        self._chromosomes.sort(key=attrgetter('fitness'), reverse=True)
-        return self._chromosomes[:count]
+        filtered_chromosomes = list(filter(lambda ch: ch.fitness > 0, chromosomes))
+        total_fitness = sum(chromosome.fitness for chromosome in filtered_chromosomes)
+        if total_fitness > 0:
+            # must be sorted first
+            parents = []
+            for _ in range(count):
+                acc_p = 0
+                threshold = random.random()
+                for chromosome in filtered_chromosomes:
+                    acc_p += chromosome.fitness / total_fitness
+                    if threshold < acc_p:
+                        parents.append(chromosome)
+                        break
+            assert len(parents) == count
+            return parents
+        else:
+            return chromosomes[:count]
 
     def run(self, selection_ratio: float):
 
@@ -296,40 +316,48 @@ class GeneticAlgorithm:
         new_count = self._population_size - selection_count
 
         for gen in range(self._generations):
-            print("Generation %d" % gen)
+            self.generation_start(gen)
+
             for chromosome in self._chromosomes:
-                # TODO problem specific
-                self.before_fitness(chromosome)
+                self.before_fitness(copy(chromosome))
                 chromosome.fitness = self._fitness_function(*map(attrgetter('value'), chromosome[:]))
+                self.after_fitness(copy(chromosome))
 
-            self.before_crossover(self._chromosomes)
+            # reverse = False means ascending ( min -> max )
+            # reverse = True means descending ( max -> min )
+            chromosomes = sorted(self._chromosomes, key=attrgetter("fitness"), reverse=True)
 
-            # TODO crossover strategy
-            parents = self.select_parents(selection_count)
-            children = []
-            for chromosome_0, chromosome_1 in product(parents, parents):
-                if chromosome_0 is not chromosome_1:
-                    for updated_chromosome in self.crossover(chromosome_0, chromosome_1):
-                        # for gene in updated_chromosome.genes:
-                        #    gene.mutate()
-                        children.append(updated_chromosome)
-            random.shuffle(children)
-            self._chromosomes = children[:selection_count] + [self.initialize_chromosome() for _ in range(new_count)]
+            self.before_selection(chromosomes)
+            parents = self.select_parents(chromosomes, selection_count)
+            print("Unique configurations %d" % len(set(parents)))
+            for chromosome in parents:
+                for gene in chromosome.genes:
+                    gene.mutate()
+
+            self._chromosomes = parents + [self.initialize_chromosome() for _ in range(new_count)]
+            self.generation_end(gen)
 
 
 if __name__ == '__main__':
     # local params
-    population_size = 50
+    r_config = 21  # how many configurations to render
+    r_config_row = 7
+    population_size = 250
     generations = 500
-    scale = 10
-    font_size = 24
+    scale = 5
+    font_size = 16
+
+    assert r_config <= population_size
+    assert r_config_row <= r_config
+    assert (r_config / r_config_row) % 1 == 0
 
     # initialization of environment
     pygame.init()
     pygame.font.init()
 
     font = pygame.font.SysFont(None, font_size)
-    screen = pygame.display.set_mode([width * scale, height * scale + 64])
+    screen = pygame.display.set_mode(
+        [width * scale * r_config_row, (height * scale + 64) * int(r_config / r_config_row)])
 
 
     def fitness(birth_probability: float, config: List[Tuple[int, int]]):
@@ -356,40 +384,26 @@ if __name__ == '__main__':
                         visited_walls.update(coords)
                         walls.append(coords)
 
-        num_of_caves = len(caves)
-        num_of_walls = len(walls)
-        num_of_cave_pixels = sum(len(cave.keys()) for cave in caves)
-        num_of_wall_pixels = sum(len(wall.keys()) for wall in walls)
+        cave_pixels = sum(len(cave.keys()) for cave in caves)
+        wall_pixels = sum(len(wall.keys()) for wall in walls)
+        total_pixels = width * height
 
-        if num_of_caves > 0:
-            cumulative_width = 0
-            cumulative_height = 0
-            for cave in caves:
-                x0, y0, x1, y1 = bounding_box(cave.keys())
-                w, h = x1 - x0, y1 - y0
-                cumulative_width += w
-                cumulative_height += h
-            mean_width = cumulative_width / len(caves)
-            mean_height = cumulative_height / len(caves)
+        # Entropy is maximal when cave_pixels / wall_pixels = 1
+        E = 0
+        if cave_pixels > 0:
+            p = cave_pixels / total_pixels
+            E += cave_pixels * p * -math.log(p, 2)
+        if wall_pixels > 0:
+            p = wall_pixels / total_pixels
+            E += wall_pixels * p * -math.log(p, 2)
 
-            w1 = 1024
-            v1 = (num_of_wall_pixels / num_of_cave_pixels)
-            v1 = w1 * v1 if 1.1 < v1 < 1.4 else 0
-
-            w2 = 1024
-            v2 = (mean_width / mean_height if mean_width > mean_height else mean_height / mean_width) \
-                if (mean_width > 0) and (mean_height > 0) else 0
-            v2 = w2 * v2 if 1.1 < v2 < 1.4 else 0
-
-            w3 = -5
-            v3 = w3 * len(caves)
-            return v1 + v2 + v3
-
+        if E < total_pixels * 0.5 * 0.6:
+            return E
         else:
-            return 0
+            return -(E - total_pixels * 0.5 * 0.6)
 
 
-    def handle_events(_):
+    def handle_events(_=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 exit()
@@ -398,24 +412,30 @@ if __name__ == '__main__':
                     exit()
 
 
-    def render_solution(chromosomes):
-        phenotype = max(chromosomes, key=attrgetter('fitness'))
-        birth_probability, config = phenotype[:]
-        genotype = solve(config[:], birth_probability.value)
-
-        # render best solution
+    def render_solution(chromosomes, count: int, in_row: int):
         screen.fill(color=(0, 0, 0))
-        for x in range(width):
-            for y in range(height):
-                if genotype[encode_coords(x, y)] == 1:
-                    pygame.draw.rect(screen, color=(255, 255, 255), rect=(x * scale, y * scale, scale, scale))
+        phenotypes = chromosomes[:count]
 
-        text0 = font.render(
-            "fitness: %d, steps: %s, birth_prob: %s" % (phenotype.fitness, len(config), birth_probability),
-            False, (255, 255, 255))
-        text1 = font.render("config: %s" % config, False, (255, 255, 255))
-        screen.blit(text0, (8, height * scale + 8))
-        screen.blit(text1, (8, height * scale + 8 + font_size))
+        for i, phenotype in enumerate(phenotypes):
+            x0 = (i % in_row) * width * scale
+            y0 = int(i / in_row) * height * scale + int(i / in_row) * 64
+
+            birth_probability, config = phenotype[:]
+            genotype = solve(config[:], birth_probability.value)
+
+            # render best solution
+            for x in range(width):
+                for y in range(height):
+                    if genotype[encode_coords(x, y)] == 1:
+                        pygame.draw.rect(screen, color=(255, 255, 255),
+                                         rect=(x0 + x * scale, y0 + y * scale, scale, scale))
+
+            text0 = font.render(
+                "fitness: %d, steps: %s, birth_prob: %s" % (phenotype.fitness, len(config), birth_probability),
+                False, (255, 255, 255))
+            text1 = font.render("config: %s" % config, False, (255, 255, 255))
+            screen.blit(text0, (x0 + 8, y0 + height * scale + 8))
+            screen.blit(text1, (x0 + 8, y0 + height * scale + 8 + font_size))
         pygame.display.flip()
         pygame.image.save(screen, "img/%d.png" % time.time())
 
@@ -423,7 +443,7 @@ if __name__ == '__main__':
     initial_genes = [
         [
             FloatBoundedIntervalGene.initialize(0.01),
-            ConfigGene.initialize(8)
+            ConfigGene.initialize(1, 4)
         ] for _ in range(population_size)
     ]
     GA = GeneticAlgorithm(
@@ -432,8 +452,9 @@ if __name__ == '__main__':
         generations=generations,
         fitness_function=fitness
     )
+    GA.generation_start = lambda gen: print("Generation %d" % gen)
     GA.before_fitness = handle_events
-    GA.before_crossover = render_solution
-    GA.run(0.8)
+    GA.before_selection = partial(render_solution, count=r_config, in_row=r_config_row)
+    GA.run(0.7)
 
     pygame.quit()
