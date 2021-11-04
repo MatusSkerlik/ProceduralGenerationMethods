@@ -1,16 +1,18 @@
-import math
 import random
+import statistics
 import time
 from abc import ABC, abstractmethod
-from copy import copy
+from copy import copy, deepcopy
 from functools import partial
 from operator import attrgetter
 from typing import List, Tuple, Any, Callable
 
+import matplotlib.pyplot as plt
 import pygame
 
 # global params
-width, height = 50, 50
+
+width, height = 150, 150
 
 Coords = Tuple[int, int]
 Rect = Tuple[int, int, int, int]
@@ -39,7 +41,27 @@ def moore_nbs(x: int, y: int, Map: List[int]):
         if x < width - 1:
             bottom_left = Map[encode_coords(x + 1, y + 1)]
 
+    if x > 0:
+        left = Map[encode_coords(x - 1, y)]
+    if x < width - 1:
+        right = Map[encode_coords(x + 1, y)]
+
     return top, top_right, right, bottom_right, bottom, bottom_left, left, top_left
+
+
+def neumann_nbs(x: int, y: int, Map: List[int]):
+    top, right, bottom, left = 0, 0, 0, 0
+
+    if x > 0:
+        left = Map[encode_coords(x - 1, y)]
+    if x < width - 1:
+        right = Map[encode_coords(x + 1, y)]
+    if y > 0:
+        top = Map[encode_coords(x, y - 1)]
+    if y < height - 1:
+        bottom = Map[encode_coords(x, y + 1)]
+
+    return top, right, bottom, left
 
 
 def count_alive(nbs):
@@ -67,11 +89,11 @@ def step(survive_ratio: int, reborn_ratio: int, Map: List[int]):
 def solve(config: List[Tuple[int, int]], birth_probability: float):
     """ Solve cellular automata """
 
-    Solution = [1 if random.random() > birth_probability else 0 for _ in range(width * height)]
+    Map = [1 if random.random() > birth_probability else 0 for _ in range(width * height)]
     for i in range(len(config)):
         survive_ratio, reborn_ratio = config[i]
-        Solution = step(survive_ratio, reborn_ratio, Solution)
-    return Solution
+        Map = step(survive_ratio, reborn_ratio, Map)
+    return Map
 
 
 def flood_fill(Solution: List[int], x: int, y: int, lookup: int) -> List[Coords]:
@@ -100,6 +122,18 @@ def flood_fill(Solution: List[int], x: int, y: int, lookup: int) -> List[Coords]
     return list(founded.keys())
 
 
+def circumference(coords: List[Coords], Map: List[int]) -> List[Coords]:
+    """ Returns circumference pixels of cave """
+    pixels = []
+    for x, y in coords:
+        nbs = moore_nbs(x, y, Map)
+        alive = count_alive(nbs)
+        dead = 8 - alive
+        if (dead > 1) and (alive > 3):
+            pixels.append((x, y))
+    return pixels
+
+
 def bounding_box(coords: List[Coords]) -> Rect:
     """ Get bounding box of coordinates """
     min_x = width
@@ -118,6 +152,28 @@ def bounding_box(coords: List[Coords]) -> Rect:
             max_y = y
 
     return min_x, min_y, max_x, max_y
+
+
+def cluster_entities(Map):
+    caves = []
+    walls = []
+    visited_caves = dict()
+    visited_walls = dict()
+
+    for x in range(width):
+        for y in range(height):
+            if (x, y) not in visited_caves and (x, y) not in visited_walls:
+                cave = flood_fill(Map, x, y, 1)
+                wall = flood_fill(Map, x, y, 0)
+                if len(cave) > 0:
+                    coords = dict.fromkeys(cave, True)
+                    visited_caves.update(coords)
+                    caves.append(cave)
+                elif len(wall) > 0:
+                    coords = dict.fromkeys(wall, True)
+                    visited_walls.update(coords)
+                    walls.append(wall)
+    return caves, walls
 
 
 class Gene(ABC):
@@ -211,7 +267,7 @@ class ConfigGene(Gene):
             self._value.append((random.randint(1, 8), random.randint(1, 8)))
         elif r < 0.01 and len(self._value) > 1:
             self._value.pop()
-        elif len(self._value) > 1 and random.random() < 0.1:
+        elif len(self._value) > 1 and random.random() < 0.5:
             m_index = len(self._value) - 1
             p_index = random.randint(0, 1)
             ratio = self._value[m_index][p_index]
@@ -259,7 +315,8 @@ class Chromosome:
 
 class GeneticAlgorithm:
     """ Cellular automata GA """
-    before_selection = staticmethod(lambda chromosomes: None)
+    before_selection0 = staticmethod(lambda chromosomes: None)
+    before_selection1 = staticmethod(lambda chromosomes: None)
     before_fitness = staticmethod(lambda chromosome: None)
     after_fitness = staticmethod(lambda chromosome: None)
     generation_start = staticmethod(lambda gen: None)
@@ -303,7 +360,7 @@ class GeneticAlgorithm:
                 for chromosome in filtered_chromosomes:
                     acc_p += chromosome.fitness / total_fitness
                     if threshold < acc_p:
-                        parents.append(chromosome)
+                        parents.append(deepcopy(chromosome))
                         break
             assert len(parents) == count
             return parents
@@ -327,9 +384,9 @@ class GeneticAlgorithm:
             # reverse = True means descending ( max -> min )
             chromosomes = sorted(self._chromosomes, key=attrgetter("fitness"), reverse=True)
 
-            self.before_selection(chromosomes)
+            self.before_selection0(chromosomes)
+            self.before_selection1(chromosomes)
             parents = self.select_parents(chromosomes, selection_count)
-            print("Unique configurations %d" % len(set(parents)))
             for chromosome in parents:
                 for gene in chromosome.genes:
                     gene.mutate()
@@ -339,22 +396,27 @@ class GeneticAlgorithm:
 
 
 if __name__ == '__main__':
+    # initialization of matplotlib environment
+    fig, ax = plt.subplots()
+    plt.ion()
+    fitness_arr = []
+
     # local params
-    r_config = 21  # how many configurations to render
-    r_config_row = 7
-    population_size = 250
+    r_config = 8  # how many configurations to render
+    r_config_row = 4
+    population_size = 100
     generations = 500
-    scale = 5
+    scale = 2
     font_size = 16
+    draw_circumference = False
 
     assert r_config <= population_size
     assert r_config_row <= r_config
     assert (r_config / r_config_row) % 1 == 0
 
-    # initialization of environment
+    # initialization of pygame environment
     pygame.init()
     pygame.font.init()
-
     font = pygame.font.SysFont(None, font_size)
     screen = pygame.display.set_mode(
         [width * scale * r_config_row, (height * scale + 64) * int(r_config / r_config_row)])
@@ -362,48 +424,29 @@ if __name__ == '__main__':
 
     def fitness(birth_probability: float, config: List[Tuple[int, int]]):
         """ Calculate fitness for genetic algorithm """
-        caves = []
-        walls = []
-        visited_caves = dict()
-        visited_walls = dict()
 
         # from genotype to phenotype
-        Solution = solve(config[:], birth_probability)
+        Map = solve(config[:], birth_probability)
+        caves, walls = cluster_entities(Map)
 
-        for x in range(width):
-            for y in range(height):
-                if (x, y) not in visited_caves and (x, y) not in visited_walls:
-                    cave = flood_fill(Solution, x, y, 1)
-                    wall = flood_fill(Solution, x, y, 0)
-                    if len(cave) > 0:
-                        coords = dict.fromkeys(cave, True)
-                        visited_caves.update(coords)
-                        caves.append(coords)
-                    elif len(wall) > 0:
-                        coords = dict.fromkeys(wall, True)
-                        visited_walls.update(coords)
-                        walls.append(coords)
+        if len(walls) > 0 and len(caves) > 0:
+            walls_mean_size = sum(len(wall) for wall in walls) / len(walls)
 
-        cave_pixels = sum(len(cave.keys()) for cave in caves)
-        wall_pixels = sum(len(wall.keys()) for wall in walls)
-        total_pixels = width * height
+            E = 0
+            for cave in caves:
+                circumference_dict = dict.fromkeys(circumference(cave, Map))
+                cave_insides = [pixel for pixel in cave if pixel not in circumference_dict]
+                E += len(cave_insides) * len(circumference_dict.keys()) * walls_mean_size
 
-        # Entropy is maximal when cave_pixels / wall_pixels = 1
-        E = 0
-        if cave_pixels > 0:
-            p = cave_pixels / total_pixels
-            E += cave_pixels * p * -math.log(p, 2)
-        if wall_pixels > 0:
-            p = wall_pixels / total_pixels
-            E += wall_pixels * p * -math.log(p, 2)
-
-        if E < total_pixels * 0.5 * 0.6:
+            # fitness based on circumference of cave
             return E
         else:
-            return -(E - total_pixels * 0.5 * 0.6)
+            return 0
 
 
     def handle_events(_=None):
+        fig.canvas.start_event_loop(0.0001)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 exit()
@@ -412,7 +455,8 @@ if __name__ == '__main__':
                     exit()
 
 
-    def render_solution(chromosomes, count: int, in_row: int):
+    def render_phenotypes(chromosomes, count: int, in_row: int):
+        """ Render phenotypes """
         screen.fill(color=(0, 0, 0))
         phenotypes = chromosomes[:count]
 
@@ -430,6 +474,13 @@ if __name__ == '__main__':
                         pygame.draw.rect(screen, color=(255, 255, 255),
                                          rect=(x0 + x * scale, y0 + y * scale, scale, scale))
 
+            if draw_circumference:
+                caves, walls = cluster_entities(genotype)
+                for cave in caves:
+                    for x, y in circumference(cave, genotype):
+                        pygame.draw.rect(screen, color=(255, 0, 0),
+                                         rect=(x0 + x * scale, y0 + y * scale, scale, scale))
+
             text0 = font.render(
                 "fitness: %d, steps: %s, birth_prob: %s" % (phenotype.fitness, len(config), birth_probability),
                 False, (255, 255, 255))
@@ -440,10 +491,30 @@ if __name__ == '__main__':
         pygame.image.save(screen, "img/%d.png" % time.time())
 
 
+    def plot_fitness(chromosomes):
+        """ Plot sliding window median of phenotypes fitness """
+        best_chromosome = max(chromosomes, key=attrgetter("fitness"))
+        fitness_arr.append(best_chromosome.fitness)
+
+        # sliding window median with window size of 5
+        medians = []
+        for i, s in enumerate(fitness_arr):
+            if i < 5:
+                continue
+            else:
+                medians.append(statistics.median(fitness_arr[i - 5:i]))
+
+        ax.plot(medians)
+        ax.set_title("Best config: %s\nGeneration: %d" % (best_chromosome.genes, len(fitness_arr)))
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Fitness")
+        plt.show(block=False)
+
+
     initial_genes = [
         [
             FloatBoundedIntervalGene.initialize(0.01),
-            ConfigGene.initialize(1, 4)
+            ConfigGene.initialize(1, 8)
         ] for _ in range(population_size)
     ]
     GA = GeneticAlgorithm(
@@ -454,7 +525,8 @@ if __name__ == '__main__':
     )
     GA.generation_start = lambda gen: print("Generation %d" % gen)
     GA.before_fitness = handle_events
-    GA.before_selection = partial(render_solution, count=r_config, in_row=r_config_row)
-    GA.run(0.7)
+    GA.before_selection0 = partial(render_phenotypes, count=r_config, in_row=r_config_row)
+    GA.before_selection1 = plot_fitness
+    GA.run(0.75)
 
     pygame.quit()
