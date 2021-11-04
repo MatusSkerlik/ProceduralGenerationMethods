@@ -12,7 +12,7 @@ import pygame
 
 # global params
 
-width, height = 150, 150
+width, height = 50, 50
 
 Coords = Tuple[int, int]
 Rect = Tuple[int, int, int, int]
@@ -228,8 +228,11 @@ class FloatBoundedIntervalGene(Gene):
         self._diff = diff
         self._value = initial
 
+    def __str__(self):
+        return "%.2f" % self._value
+
     def mutate(self):
-        if random.random() < 0.01:
+        if random.random() < 0.5:
             if self._diff < self._value < 1 - self._diff:
                 self._value += (self._diff if random.random() > 0.5 else -self._diff)
             elif self._value < self._diff:
@@ -404,9 +407,9 @@ if __name__ == '__main__':
     # local params
     r_config = 8  # how many configurations to render
     r_config_row = 4
-    population_size = 100
+    population_size = 500
     generations = 500
-    scale = 2
+    scale = 6
     font_size = 16
     draw_circumference = False
 
@@ -499,10 +502,10 @@ if __name__ == '__main__':
         # sliding window median with window size of 5
         medians = []
         for i, s in enumerate(fitness_arr):
-            if i < 5:
+            if i < 10:
                 continue
             else:
-                medians.append(statistics.median(fitness_arr[i - 5:i]))
+                medians.append(statistics.median(fitness_arr[i - 10:i]))
 
         ax.plot(medians)
         ax.set_title("Best config: %s\nGeneration: %d" % (best_chromosome.genes, len(fitness_arr)))
