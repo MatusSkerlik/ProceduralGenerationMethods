@@ -1,3 +1,7 @@
+"""
+This script evolves cave system in Cellular automata to find best solution
+"""
+
 import random
 import statistics
 import time
@@ -405,11 +409,11 @@ if __name__ == '__main__':
     fitness_arr = []
 
     # local params
-    r_config = 8  # how many configurations to render
-    r_config_row = 4
-    population_size = 500
+    r_config = 18  # how many configurations to render
+    r_config_row = 6
+    population_size = 1000
     generations = 500
-    scale = 6
+    scale = 5
     font_size = 16
     draw_circumference = False
 

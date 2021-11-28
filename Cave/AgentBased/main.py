@@ -107,7 +107,8 @@ class DrillAgent:
         """ Spawn child with attractor placed at current position """
         if self.childs > 0:
             self.childs -= 1
-            return DrillAgent(self.x, self.y, tokens, 0, self.repulsors, [Attractor(self.x, self.y, a_radius)], a_radius, r_radius)
+            return DrillAgent(self.x, self.y, tokens, 0, self.repulsors, [Attractor(self.x, self.y, a_radius)],
+                              a_radius, r_radius)
         else:
             raise ValueError("No more childs to spawn.")
 
@@ -181,7 +182,9 @@ def run():
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_SPACE:
                     Map = init_map()
                     Diggers = init_diggers(diggers_count, tokens, childs, attractors, repulsors, a_radius, r_radius)
                     lock = False
