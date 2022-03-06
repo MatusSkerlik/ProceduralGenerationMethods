@@ -12,7 +12,7 @@ from typing import List
 import pygame
 
 # global params
-width, height = 80, 50
+width, height = 300, 40
 
 class Cell:
     def __init__(self, v = 0, c = 0):
@@ -175,7 +175,7 @@ def smooth_step(Map: List[Cell]):
 
             nbs = moore_nbs(x, y, Map)
             alive = sum([1 for _ in nbs if _ is not None and _.v == 1])
-            if alive >= 3:
+            if alive >= 4:
                 Map_copy[encode_coords(x, y)] = cell
     return Map_copy
 
@@ -187,7 +187,7 @@ if __name__ == '__main__':
     Points = []
     Map = [Cell(0, 0) for _ in range(width * height)]
     for x in range(width):
-        for y in range(int(height / 2), height): 
+        for y in range(height): 
             cell = Map[encode_coords(x, y)]  
             cell.v = 1
 
@@ -207,7 +207,7 @@ if __name__ == '__main__':
                 elif event.key == pygame.K_r:
                     Map = [Cell(0, 0) for _ in range(width * height)]
                     for x in range(width):
-                        for y in range(int(height / 2), height): 
+                        for y in range(height): 
                             cell = Map[encode_coords(x, y)]  
                             cell.v = 1
                     Points = []
@@ -215,13 +215,23 @@ if __name__ == '__main__':
                     pygame.image.save(screen, "img/%d.png" % time.time())
                 elif event.key == pygame.K_SPACE:
                     Map = smooth_step(Map)
+                elif event.key == pygame.K_n:
+                    for x in range(width):
+                        cell = Map[encode_coords(x, 0)]
+                        cell.v = 2
+                        cell.c = 99999 
+                elif event.key == pygame.K_m:
+                    for _ in range(random.randint(3, 6)):
+                        x = random.randint(0, width - 1)
+                        y = random.randint(0, height - 1)
+                        Points.append(Point(x, y))
 
         left, center, right = pygame.mouse.get_pressed()
         mx, my = pygame.mouse.get_pos()
         if (left):
             cell = Map[encode_coords(int(mx / scale), int(my / scale))]
             cell.v = 2
-            cell.c = 20 
+            cell.c = 99999 
         if (right):
             Points.append(Point(int(mx / scale), int(my / scale)))
 
