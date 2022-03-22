@@ -17,17 +17,6 @@ MaxMass = 1.0
 MaxCompress = 0.02
 MinMass = 0.001
 
-class Point:
-    def __init__(self, x: int, y: int):
-        self.x = x
-        self.y = y
-
-    def __hash__(self):
-        return hash(encode_coords(self.x, self.y))
-
-    def __eq__(self, o):
-        return isinstance(o, Point) and self.x == o.x and self.y == o.y
-
 def encode_coords(x: int, y: int):
     """ Encode coordinates for array access """
     return x + (width * y)
@@ -66,11 +55,12 @@ def step(Mass: List[float], Blocks: List[int]):
         for y in range(height):
 
             # -1 undefined, 0 wall, 1 air, 2 water 
-            cell_type = Blocks[encode_coords(x, y)]
+            coords = encode_coords(x, y)
+            cell_type = Blocks[coords]
             if cell_type != 2:
                 continue
 
-            remaining_mass = Mass[encode_coords(x, y)]
+            remaining_mass = Mass[coords]
             if remaining_mass <= 0:
                 continue
 
@@ -79,7 +69,7 @@ def step(Mass: List[float], Blocks: List[int]):
             if bottom > 0:
                 Flow = get_stable_state_b(remaining_mass + Mass[encode_coords(x, y + 1)]) - Mass[encode_coords(x, y + 1)]
                 if Flow > 0:
-                    New_Mass[encode_coords(x, y)] -= Flow
+                    New_Mass[coords] -= Flow
                     New_Mass[encode_coords(x, y + 1)] += Flow
                     remaining_mass -= Flow
 
@@ -87,9 +77,9 @@ def step(Mass: List[float], Blocks: List[int]):
                 continue
 
             if left > 0:
-                Flow = (Mass[encode_coords(x, y)] - Mass[encode_coords(x - 1, y)]) / 4
+                Flow = (Mass[coords] - Mass[encode_coords(x - 1, y)]) / 4
                 if Flow > 0:
-                    New_Mass[encode_coords(x, y)] -= Flow
+                    New_Mass[coords] -= Flow
                     New_Mass[encode_coords(x - 1, y)] += Flow
                     remaining_mass -= Flow
 
@@ -97,9 +87,9 @@ def step(Mass: List[float], Blocks: List[int]):
                 continue
 
             if right > 0:
-                Flow = (Mass[encode_coords(x, y)] - Mass[encode_coords(x + 1, y)]) / 4
+                Flow = (Mass[coords] - Mass[encode_coords(x + 1, y)]) / 4
                 if Flow > 0:
-                    New_Mass[encode_coords(x, y)] -= Flow
+                    New_Mass[coords] -= Flow
                     New_Mass[encode_coords(x + 1, y)] += Flow
                     remaining_mass -= Flow
 
@@ -109,17 +99,21 @@ def step(Mass: List[float], Blocks: List[int]):
             if top > 0:
                 Flow = remaining_mass - get_stable_state_b(remaining_mass + Mass[encode_coords(x, y - 1)])
                 if Flow > 0:
-                    New_Mass[encode_coords(x, y)] -= Flow
+                    New_Mass[coords] -= Flow
                     New_Mass[encode_coords(x, y - 1)] += Flow
                     remaining_mass -= Flow
 
 
     for x in range(width):
         for y in range(height):
-            if New_Mass[encode_coords(x, y)] > MinMass:
-                New_Blocks[encode_coords(x, y)] = 2
+            coords = encode_coords(x, y)
+            if Blocks[coords] == 0:
+                New_Blocks[coords] = 0
             else:
-                New_Blocks[encode_coords(x, y)] = 1
+                if New_Mass[coords] > MinMass:
+                    New_Blocks[coords] = 2
+                else:
+                    New_Blocks[coords] = 1
 
     return New_Mass, New_Blocks
         
@@ -132,12 +126,12 @@ if __name__ == '__main__':
     wall_durability = 3
     acid_durability = 15 
     Mass = [0.0 for _ in range(width * height)]
-    Blocks = [0 for _ in range(width * height)]
+    Blocks = [-1 for _ in range(width * height)]
 
     # initialization of pygame environment
     pygame.init()
     pygame.font.init()
-    screen = pygame.display.set_mode((width * scale, height * scale), 0, 32)
+    screen = pygame.display.set_mode((width * scale, height * scale))
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("courier", font_size, True)
 
@@ -151,37 +145,47 @@ if __name__ == '__main__':
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
+                elif event.key == pygame.K_SPACE:
+                    Mass = [0.0 for _ in range(width * height)]
+                    Blocks = [-1 for _ in range(width * height)]
                 elif event.key == pygame.K_s:
                     pygame.image.save(screen, "img/%d.png" % time.time())
-                elif event.key == pygame.K_r:
-                    pass
-                elif event.key == pygame.K_SPACE:
-                    pass
-                elif event.key == pygame.K_n:
-                    pass
-                elif event.key == pygame.K_m:
-                    pass
 
         left, center, right = pygame.mouse.get_pressed()
         mx, my = pygame.mouse.get_pos()
 
-        if (left):
+        if left:
             x = int(mx / scale)
             y = int(my / scale)
-            Blocks[encode_coords(x, y)] = 2
-            Mass[encode_coords(x, y)] = 1.0
+            if Blocks[encode_coords(x, y)] == 1: 
+                Blocks[encode_coords(x, y)] = 2
+                Mass[encode_coords(x, y)] = 1.0
+        if right:
+            x = int(mx / scale)
+            y = int(my / scale)
+            Blocks[encode_coords(x, y)] = 0
+
+        if center:
+            x = int(mx / scale)
+            y = int(my / scale)
+            if Blocks[encode_coords(x, y)] == 0: 
+                Blocks[encode_coords(x, y)] = 1
 
         Mass, Blocks = step(Mass, Blocks)
         
-        screen.fill((32, 32, 32, 255))
+        screen.fill((32, 32, 32))
         for x in range(width):
             for y in range(height):
                 cell_type = Blocks[encode_coords(x, y)]
-                mass = Mass[encode_coords(x, y)]
-                if cell_type == 2:
-                    g = (255 - (height * mass))
+                if cell_type == 0:
+                    pygame.draw.rect(screen, color=(255, 255, 255), rect=(x * scale, y * scale, scale, scale))
+                elif cell_type == 2:
+                    mass = Mass[encode_coords(x, y)]
+                    g = 255 - 255 * (mass / (1 + (height * MaxCompress)))
                     if g < 0:
                         g = 0
+                    if g > 255:
+                        g = 255
                     pygame.draw.rect(screen, color=(0, g, 255), rect=(x * scale, y * scale, scale, scale))
 
         fps_text = font.render(str(fps), True, (0, 255, 0)) 
