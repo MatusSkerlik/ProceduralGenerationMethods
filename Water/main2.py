@@ -13,8 +13,6 @@ import pygame
 
 # global params
 width, height = 50, 40
-MaxMass = 16 
-MinMass = 1
 
 class Point:
     def __init__(self, x: int, y: int):

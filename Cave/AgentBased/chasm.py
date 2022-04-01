@@ -1,5 +1,5 @@
 """
-This script makes chasm using Cellular Automata
+This script makes chasm using agents and cellular automata 
 """
 
 import random
@@ -12,7 +12,7 @@ from typing import List
 import pygame
 
 # global params
-width, height = 100, 40
+width, height = 75, 40
 
 class Cell:
     def __init__(self, v = 0):
@@ -157,20 +157,16 @@ def step(Map: List[Cell], Points: List[Point]):
     return Map_copy
 
 def smooth_step(Map: List[Cell]):
-    Map_copy = [Cell() for _ in range(width * height)]
+    Map_copy = copy(Map) 
     for x in range(width):
         for y in range(height):
             cell = copy(Map[encode_coords(x, y)])
-            if isinstance(cell, Void):
-                continue
-            elif isinstance(cell, Acid):
-                Map_copy[encode_coords(x, y)] = cell
-                continue
-            else:
-                nbs = moore_nbs(x, y, Map)
-                alive = sum([1 for _ in nbs if _ is not None and isinstance(_, Wall)])
-                if alive >= 4:
-                    Map_copy[encode_coords(x, y)] = cell
+            nbs = moore_nbs(x, y, Map)
+            alive = sum([1 for _ in nbs if _ is not None and isinstance(_, Wall)])
+            if isinstance(cell, Void) and alive > 4: 
+                Map_copy[encode_coords(x, y)] = Wall() 
+            elif isinstance(cell, Wall) and alive < 4:
+                Map_copy[encode_coords(x, y)] = Void() 
     return Map_copy
 
 if __name__ == '__main__':

@@ -87,7 +87,7 @@ if __name__ == '__main__':
     running = True
     render = True
     make_step = False
-    birth_probability = 0.5
+    birth_probability = 0.7
     Map = [1 if random.random() > birth_probability else 0 for _ in range(width * height)]
 
     # initialization of pygame environment
@@ -112,7 +112,7 @@ if __name__ == '__main__':
                     pygame.image.save(screen, "img/%d.png" % time.time())
 
         if make_step:
-            Map = step(4, 4, Map)
+            Map = step(5, 1, Map)
             make_step = False
 
         if render:
